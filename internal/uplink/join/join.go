@@ -495,8 +495,14 @@ func (ctx *joinContext) createDeviceSession() error {
 	}
 
 	ctx.DeviceSession = ds
+	devEuiasBytes := ctx.JoinRequestPayload.DevEUI
+	//fmt.Printf("\n\ndevEuiasBytes = " + string(devEuiasBytes[:]))
+	//fmt.Printf("\ndevEuiasBytes (plain) = ")
+	//log.Info(devEuiasBytes)
+	//fmt.Printf("\ndevEuiasBytes.string (plain) = ")
+	//log.Info(devEuiasBytes.String())
 
-	if err := storage.SaveDeviceSession(ctx.ctx, ctx.DeviceSession); err != nil {
+	if err := storage.SaveDeviceSession(ctx.ctx, ctx.DeviceSession, devEuiasBytes.String()); err != nil {
 		return errors.Wrap(err, "save node-session error")
 	}
 

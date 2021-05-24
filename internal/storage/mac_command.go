@@ -96,6 +96,9 @@ func FlushMACCommandQueue(ctx context.Context, devEUI lorawan.EUI64) error {
 func CreateMACCommandQueueItem(ctx context.Context, devEUI lorawan.EUI64, block MACCommandBlock) error {
 	key := GetRedisKey(macCommandQueueTempl, devEUI)
 
+	//burada block yazdırılcak
+	//log.Info("metal" + pl.GetRxInfo().String())
+	//log.Info("  ---  block ---  %+v\n", block)
 	var buf bytes.Buffer
 	err := gob.NewEncoder(&buf).Encode(block)
 	if err != nil {

@@ -320,7 +320,7 @@ func HandleResponse(ctx context.Context, rxPacket models.RXPacket, sp storage.Se
 		RXPacket:        &rxPacket,
 		MACCommands:     macCommands,
 	}
-
+	log.Info("HandleResponse metoduna girdi")
 	for _, t := range responseTasks {
 		if err := t(&rctx); err != nil {
 			if err == ErrAbort {
@@ -330,7 +330,14 @@ func HandleResponse(ctx context.Context, rxPacket models.RXPacket, sp storage.Se
 			return err
 		}
 	}
-
+	//log.Info("-")
+	//log.Info("rctx: ", rctx)
+	//log.Info("-")
+	//log.Info("rctx.DeviceSession.DevEUI (as string) = ", string(rctx.DeviceSession.DevEUI[:]))
+	log.Info("rctx.DeviceSession.DevEUI (plain)= ", rctx.DeviceSession.DevEUI)
+	log.Info("MACCommands: ", macCommands)
+	log.Info("-")
+	log.Info("HandleResponse metodundan çıktı")
 	return nil
 }
 
@@ -1036,6 +1043,11 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 		// In case mac-commands are disabled in the ChirpStack Network Server configuration,
 		// only allow external mac-commands (e.g. scheduled by an external
 		// controller).
+		log.Info("-")
+		log.Info("ctx: ", ctx)
+		log.Info("-")
+		log.Info("MACCommands: ", ctx.MACCommands)
+		log.Info("-")
 		if disableMACCommands {
 			var externalMACCommands []storage.MACCommandBlock
 
@@ -1070,7 +1082,12 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 				}
 			}
 		}
-
+		log.Info("-")
+		log.Info("ctx: ", ctx)
+		log.Info("-")
+		log.Info("MACCommands: ", ctx.MACCommands)
+		log.Info("-")
+		log.Info("dowmnlik komutları set edildi!!!")
 		return nil
 	}
 }
@@ -1281,6 +1298,10 @@ func stopOnNothingToSend(ctx *dataContext) error {
 // as only then we know which of the frame-counters to increment
 // (AFCntDown vs NFCntDown).
 func setPHYPayloads(ctx *dataContext) error {
+	log.Info("setPHYPayloads metodu başladı !!!")
+	log.Info("-")
+	log.Info("şifrelenmemiş ctx: ", ctx)
+	log.Info("-")
 	for i := range ctx.DownlinkFrameItems {
 		var macCommandSize int
 		var macCommands []lorawan.Payload
@@ -1303,8 +1324,14 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
-			}
+				log.Info("-")
+				log.Info("macCommands to add: ", macCommands)
+				log.Info("-")
 
+			}
+			for l := range macCommands {
+				log.Info("macCommands[index]: ", *&macCommands[l])
+			}
 		}
 
 		// LoRaWAN MHDR
@@ -1395,6 +1422,11 @@ func setPHYPayloads(ctx *dataContext) error {
 			return errors.Wrap(err, "set MIC error")
 		}
 
+		log.Info("------------gönderilmeden önce------------------- phy: ")
+		log.Info("phy.MACPayload: ", phy.MACPayload)
+		log.Info("phy.MHDR: ", phy.MHDR)
+		log.Info("phy.MIC: ", phy.MIC)
+
 		b, err := phy.MarshalBinary()
 		if err != nil {
 			return errors.Wrap(err, "marshal binary error")
@@ -1408,10 +1440,23 @@ func setPHYPayloads(ctx *dataContext) error {
 }
 
 func sendDownlinkFrame(ctx *dataContext) error {
+	log.Info("--------sendDownlinkFrame metodu başladı--------")
 	if len(ctx.DownlinkFrameItems) == 0 {
 		return nil
 	}
 
+	for _, element := range ctx.MACCommands {
+		log.Info("--")
+		for _, element := range element.MACCommands {
+			log.Info("---")
+			log.Info("sendDownlinkFrame ctx.MACCommands[x].MACCommands[x]: ")
+			log.Info("element.CID: ", element.CID)
+			log.Info("element.Payload: ", element.Payload)
+
+		}
+	}
+	//log.Info("-")
+	//log.Info("-")
 	// send the packet to the gateway
 	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
 		return errors.Wrap(err, "send downlink-frame to gateway error")

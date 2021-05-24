@@ -3,6 +3,11 @@
 package storage
 
 import (
+	"io/ioutil"
+	"os"
+
+	mathrand "math/rand"
+
 	"context"
 	"crypto/rand"
 	"fmt"
@@ -284,13 +289,32 @@ func (s *DeviceSession) ResetToBootParameters(dp DeviceProfile) {
 // GetRandomDevAddr returns a random DevAddr, prefixed with NwkID based on the
 // given NetID.
 func GetRandomDevAddr(netID lorawan.NetID) (lorawan.DevAddr, error) {
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info("-")
+	//log.Info("netowrk_identifier = ", netID)
+	//log.Info("-")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
 	var d lorawan.DevAddr
 	b := make([]byte, len(d))
 	if _, err := rand.Read(b); err != nil {
 		return d, errors.Wrap(err, "read random bytes error")
 	}
 	copy(d[:], b)
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info("-")
+	//log.Info("DevAddr (without prefix) = ", d)
+	//log.Info("-")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
 	d.SetAddrPrefix(netID)
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info("-")
+	//log.Info("DevAddr = ", d)
+	//log.Info("-")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
+	//log.Info(" **** **** **** *** **** **** **** ***** *** ***** *** **** ****")
 
 	return d, nil
 }
@@ -317,9 +341,57 @@ func GetFullFCntUp(nextExpectedFullFCnt, truncatedFCntUp uint32) uint32 {
 	return nextExpectedFullFCnt + gap
 }
 
+type SessionData struct {
+	joinCtx      context.Context
+	sess         DeviceSession
+	devEuiString string
+}
+
 // SaveDeviceSession saves the device-session. In case it doesn't exist yet
 // it will be created.
-func SaveDeviceSession(ctx context.Context, s DeviceSession) error {
+func SaveDeviceSession(args ...interface{}) error {
+	fmt.Printf(" !!!        SaveDeviceSession metodu başladı       !!!")
+	//ctx context.Context, s DeviceSession
+	if len(args) > 3 {
+		return fmt.Errorf("Wrong number of arguments passed")
+	}
+	sessionData := &SessionData{}
+	for i, arg := range args {
+		switch i {
+		case 0: // joinCtx
+			ctx, ok := arg.(context.Context)
+			if !ok {
+				return fmt.Errorf("ctx is not passed as string")
+			}
+			sessionData.joinCtx = ctx
+		case 1: // sess
+			s, ok := arg.(DeviceSession)
+			if !ok {
+				return fmt.Errorf("s is not passed as string")
+			}
+			sessionData.sess = s
+		// ctx'ten çekilebilme ihtimali olabilir. join'de bu metodun çağırıldığı yerde eui stringi göndermemize gerek yok.
+		case 2: // devEuiString
+			deveui, ok := arg.(string)
+			//fmt.Printf("\n\nDEVEUbytes = ")
+			//log.Info(deveui)
+			//fmt.Printf("\n")
+			if !ok {
+				return fmt.Errorf("deveui is not passed as string")
+			}
+			sessionData.devEuiString = deveui
+			s := sessionData.sess
+
+			//open file and add session info
+			CreateFile(s, sessionData.devEuiString)
+			//ReadFile()
+		default:
+			return fmt.Errorf("Wrong parametes passed")
+		}
+	}
+	ctx := sessionData.joinCtx
+	s := sessionData.sess
+
 	devAddrKey := GetRedisKey(devAddrKeyTempl, s.DevAddr)
 	devSessKey := GetRedisKey(deviceSessionKeyTempl, s.DevEUI)
 
@@ -364,6 +436,58 @@ func SaveDeviceSession(ctx context.Context, s DeviceSession) error {
 	}).Info("device-session saved")
 
 	return nil
+}
+
+func CreateFile(s DeviceSession, devEuiasString string) {
+
+	fmt.Printf("Writing to a file in Go lang\n")
+
+	mathrand.Seed(time.Now().UnixNano())
+
+	randomFileName := randSeq(10)
+	fmt.Println("file name = " + randomFileName)
+
+	file, err := os.Create(randomFileName + ".txt")
+
+	if err != nil {
+		log.Fatalf("failed creating file: %s", err)
+	}
+
+	defer file.Close()
+
+	start := time.Now()
+	len, err := file.WriteString(start.String() + " | " + s.DevAddr.String() + " | deveui: " + devEuiasString)
+
+	if err != nil {
+		log.Fatalf("failed writing to file: %s", err)
+	}
+
+	fmt.Printf("\nFile Name: %s", file.Name())
+	fmt.Printf("\nLength: %d bytes", len)
+}
+
+func ReadFile() {
+
+	fmt.Printf("\n\nReading a file in Go lang\n")
+	fileName := "test.txt"
+
+	data, err := ioutil.ReadFile("test.txt")
+	if err != nil {
+		log.Panicf("failed reading data from file: %s", err)
+	}
+	fmt.Printf("\nFile Name: %s", fileName)
+	fmt.Printf("\nSize: %d bytes", len(data))
+	fmt.Printf("\nData: %s", data)
+}
+
+func randSeq(n int) string {
+	var letters = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[mathrand.Intn(len(letters))]
+	}
+	return string(b)
 }
 
 // GetDeviceSession returns the device-session for the given DevEUI.

@@ -6,6 +6,7 @@ import (
 
 	"github.com/brocaar/chirpstack-api/go/v3/gw"
 	"github.com/golang/protobuf/proto"
+	//log "github.com/sirupsen/logrus"
 )
 
 var backend Gateway
@@ -42,10 +43,12 @@ func UpdateDownlinkFrame(mode string, df *gw.DownlinkFrame) error {
 		df.PhyPayload = df.Items[0].PhyPayload
 		df.TxInfo = proto.Clone(df.Items[0].TxInfo).(*gw.DownlinkTXInfo)
 		df.TxInfo.GatewayId = df.GatewayId
+		//log.Info("------- downlink items ------- ", df.Items)
 	case "legacy":
 		df.PhyPayload = df.Items[0].PhyPayload
 		df.TxInfo = proto.Clone(df.Items[0].TxInfo).(*gw.DownlinkTXInfo)
 		df.TxInfo.GatewayId = df.GatewayId
+		//log.Info("------- downlink items ------- ", df.Items)
 		df.Items = nil
 	case "multi_only":
 		// this is internally the default
