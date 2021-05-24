@@ -1457,6 +1457,9 @@ func sendDownlinkFrame(ctx *dataContext) error {
 	}
 	//log.Info("-")
 	//log.Info("-")
+	//log.Info("sendDownlinkFrame ctx.MACCommands[0].MACCommands[0].Payload: ", ctx.MACCommands[0].MACCommands[0].Payload)
+	//log.Info("-")
+
 	// send the packet to the gateway
 	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
 		return errors.Wrap(err, "send downlink-frame to gateway error")
