@@ -4,7 +4,7 @@ API_VERSION := $(shell go list -m -f '{{ .Version }}' github.com/brocaar/chirpst
 
 build:
 	@echo "Compiling source"
-	@mkdir -p build
+	
 	go build $(GO_EXTRA_BUILD_ARGS) -ldflags "-s -w -X main.version=$(VERSION)" -o build/chirpstack-network-server cmd/chirpstack-network-server/main.go
 
 clean:
@@ -50,7 +50,7 @@ dev-requirements:
 
 # shortcuts for development
 
-serve: build
+serve:
 	@echo "Starting ChirpStack Network Server"
 	./build/chirpstack-network-server
 

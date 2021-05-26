@@ -334,9 +334,9 @@ func HandleResponse(ctx context.Context, rxPacket models.RXPacket, sp storage.Se
 	//log.Info("rctx: ", rctx)
 	//log.Info("-")
 	//log.Info("rctx.DeviceSession.DevEUI (as string) = ", string(rctx.DeviceSession.DevEUI[:]))
-	log.Info("rctx.DeviceSession.DevEUI (plain)= ", rctx.DeviceSession.DevEUI)
-	log.Info("MACCommands: ", macCommands)
-	log.Info("-")
+	//log.Info("rctx.DeviceSession.DevEUI (plain)= ", rctx.DeviceSession.DevEUI)
+	//log.Info("MACCommands: ", macCommands)
+	//log.Info("-")
 	log.Info("HandleResponse metodundan çıktı")
 	return nil
 }
@@ -1043,11 +1043,11 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 		// In case mac-commands are disabled in the ChirpStack Network Server configuration,
 		// only allow external mac-commands (e.g. scheduled by an external
 		// controller).
-		log.Info("-")
-		log.Info("ctx: ", ctx)
-		log.Info("-")
-		log.Info("MACCommands: ", ctx.MACCommands)
-		log.Info("-")
+		//log.Info("-")
+		//log.Info("ctx: ", ctx)
+		//log.Info("-")
+		//log.Info("MACCommands: ", ctx.MACCommands)
+		//log.Info("-")
 		if disableMACCommands {
 			var externalMACCommands []storage.MACCommandBlock
 
@@ -1075,6 +1075,11 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 				return errors.Wrap(err, "set mac-command pending error")
 			}
 
+			fmt.Printf(" asdasdsa")
+			log.Info("block: ", block)
+			log.Info("block.MACCommands: ", block.MACCommands)
+			fmt.Printf(" asdasdasdas")
+
 			// delete from queue, if external
 			if block.External {
 				if err := storage.DeleteMACCommandQueueItem(ctx.ctx, ctx.DeviceSession.DevEUI, block); err != nil {
@@ -1082,11 +1087,11 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 				}
 			}
 		}
-		log.Info("-")
-		log.Info("ctx: ", ctx)
-		log.Info("-")
-		log.Info("MACCommands: ", ctx.MACCommands)
-		log.Info("-")
+		//log.Info("-")
+		//log.Info("ctx: ", ctx)
+		//log.Info("-")
+		//log.Info("MACCommands: ", ctx.MACCommands)
+		//log.Info("-")
 		log.Info("dowmnlik komutları set edildi!!!")
 		return nil
 	}
@@ -1299,9 +1304,9 @@ func stopOnNothingToSend(ctx *dataContext) error {
 // (AFCntDown vs NFCntDown).
 func setPHYPayloads(ctx *dataContext) error {
 	log.Info("setPHYPayloads metodu başladı !!!")
-	log.Info("-")
-	log.Info("şifrelenmemiş ctx: ", ctx)
-	log.Info("-")
+	//log.Info("-")
+	//log.Info("şifrelenmemiş ctx: ", ctx)
+	//log.Info("-")
 	for i := range ctx.DownlinkFrameItems {
 		var macCommandSize int
 		var macCommands []lorawan.Payload
@@ -1321,17 +1326,27 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			ctx.DownlinkFrameItems[i].RemainingPayloadSize = ctx.DownlinkFrameItems[i].RemainingPayloadSize - s
 			macCommandSize += s
+			//log.Info("macCommandSize: ", macCommandSize)
 
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
-				log.Info("-")
-				log.Info("macCommands to add: ", macCommands)
-				log.Info("-")
-
 			}
-			for l := range macCommands {
-				log.Info("macCommands[index]: ", *&macCommands[l])
+			//for l := range macCommands {
+			//	log.Info("macCommands[index]: ", *&macCommands[l])
+			//}
+			log.Info("|||||||||||||||||||||||||||||||||||||||||||||||||||")
+			for _, element := range ctx.MACCommands {
+				log.Info("--")
+				//log.Info("ctx.MACCommands: ", element)
+				for _, element := range element.MACCommands {
+					log.Info("---")
+					log.Info("element.CID: (type) ", element.CID)
+					log.Info("element.Payload: (load) ", element.Payload)
+					log.Info("ctx.DeviceSession.DevAddr: ", ctx.DeviceSession.DevAddr)
+					log.Info("ctx.DeviceSession.DevEUI: ", ctx.DeviceSession.DevEUI)
+				}
 			}
+			log.Info("|||||||||||||||||||||||||||||||||||||||||||||||||||")
 		}
 
 		// LoRaWAN MHDR
@@ -1362,6 +1377,8 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			// Set the mac-commands as FRMPayload.
 			macPL.FRMPayload = macCommands
+			//log.Info("**********************         !!! macCommandSize > 15")
+			//log.Info("macPL.FRMPayload: ", macPL.FRMPayload)
 
 			// MAC-layer FPort.
 			fPort := uint8(0)
@@ -1377,7 +1394,8 @@ func setPHYPayloads(ctx *dataContext) error {
 		if macCommandSize <= 15 {
 			// Set the mac-commands as FOpts.
 			macPL.FHDR.FOpts = macCommands
-
+			log.Info("------")
+			//log.Info("macPL.FHDR.FOpts: ", macCommands)
 			// Test if we still can send a device-queue item.
 			if ctx.DeviceQueueItem != nil && len(ctx.DeviceQueueItem.FRMPayload) <= ctx.DownlinkFrameItems[i].RemainingPayloadSize {
 				// Set the device-queue item.
@@ -1386,7 +1404,7 @@ func setPHYPayloads(ctx *dataContext) error {
 				macPL.FRMPayload = []lorawan.Payload{
 					&lorawan.DataPayload{Bytes: ctx.DeviceQueueItem.FRMPayload},
 				}
-
+				//log.Info("macPL.FRMPayload: ", macPL.FRMPayload)
 				if ctx.DeviceQueueItem.Confirmed {
 					mhdr.MType = lorawan.ConfirmedDataDown
 				}
@@ -1397,11 +1415,25 @@ func setPHYPayloads(ctx *dataContext) error {
 			}
 		}
 
+		for _, element := range macPL.FRMPayload {
+			log.Info("--")
+			log.Info("macPL.FRMPayload[i]: ", element)
+		}
+
 		// Construct LoRaWAN PHYPayload.
 		phy := lorawan.PHYPayload{
 			MHDR:       mhdr,
 			MACPayload: &macPL,
 		}
+		log.Info("__________________________________")
+		//log.Info("&(macPL.FRMPayload): ", &(macPL.FRMPayload))
+		//log.Info("(&macPL).FRMPayload: ", (&macPL).FRMPayload)
+		//log.Info("*(&macPL.FRMPayload): ", *(&macPL.FRMPayload))
+		//log.Info("macPL.FRMPayload: ", macPL.FRMPayload)
+		//log.Info("phy.mhdr: ", phy.MHDR)
+		//log.Info("phy.macpayload: ", phy.MACPayload)
+		//log.Info("phy.mic: ", phy.MIC)
+		log.Info("__________________________________")
 
 		// Encrypt FRMPayload mac-commands.
 		if macPL.FPort != nil && *macPL.FPort == 0 {
@@ -1422,10 +1454,10 @@ func setPHYPayloads(ctx *dataContext) error {
 			return errors.Wrap(err, "set MIC error")
 		}
 
-		log.Info("------------gönderilmeden önce------------------- phy: ")
-		log.Info("phy.MACPayload: ", phy.MACPayload)
-		log.Info("phy.MHDR: ", phy.MHDR)
-		log.Info("phy.MIC: ", phy.MIC)
+		//log.Info("------------gönderilmeden önce------------------- phy: ")
+		//log.Info("phy.MACPayload: ", phy.MACPayload)
+		//log.Info("phy.MHDR: ", phy.MHDR)
+		//log.Info("phy.MIC: ", phy.MIC)
 
 		b, err := phy.MarshalBinary()
 		if err != nil {
@@ -1439,6 +1471,13 @@ func setPHYPayloads(ctx *dataContext) error {
 	return nil
 }
 
+func printPtrValue(q *lorawan.Payload) {
+	fmt.Printf("")
+	fmt.Printf("*q=%v\n", *q)
+	fmt.Printf("q=%v\n", q)
+	fmt.Printf("")
+}
+
 func sendDownlinkFrame(ctx *dataContext) error {
 	log.Info("--------sendDownlinkFrame metodu başladı--------")
 	if len(ctx.DownlinkFrameItems) == 0 {
@@ -1446,13 +1485,10 @@ func sendDownlinkFrame(ctx *dataContext) error {
 	}
 
 	for _, element := range ctx.MACCommands {
-		log.Info("--")
 		for _, element := range element.MACCommands {
-			log.Info("---")
 			log.Info("sendDownlinkFrame ctx.MACCommands[x].MACCommands[x]: ")
 			log.Info("element.CID: ", element.CID)
 			log.Info("element.Payload: ", element.Payload)
-
 		}
 	}
 	//log.Info("-")
