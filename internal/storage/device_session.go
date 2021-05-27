@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-redis/redis/v7"
+	"github.com/go-redis/redis/v8"
 	"github.com/gofrs/uuid"
 	proto "github.com/golang/protobuf/proto"
 	"github.com/pkg/errors"
@@ -407,9 +407,9 @@ func SaveDeviceSession(args ...interface{}) error {
 	// shard.
 
 	pipe := RedisClient().TxPipeline()
-	pipe.SAdd(devAddrKey, s.DevEUI[:])
-	pipe.PExpire(devAddrKey, deviceSessionTTL)
-	if _, err := pipe.Exec(); err != nil {
+	pipe.SAdd(ctx, devAddrKey, s.DevEUI[:])
+	pipe.PExpire(ctx, devAddrKey, deviceSessionTTL)
+	if _, err := pipe.Exec(ctx); err != nil {
 		return errors.Wrap(err, "exec error")
 	}
 
@@ -417,14 +417,14 @@ func SaveDeviceSession(args ...interface{}) error {
 		pendingDevAddrKey := GetRedisKey(devAddrKeyTempl, s.PendingRejoinDeviceSession.DevAddr)
 
 		pipe = RedisClient().TxPipeline()
-		pipe.SAdd(pendingDevAddrKey, s.DevEUI[:])
-		pipe.PExpire(pendingDevAddrKey, deviceSessionTTL)
-		if _, err := pipe.Exec(); err != nil {
+		pipe.SAdd(ctx, pendingDevAddrKey, s.DevEUI[:])
+		pipe.PExpire(ctx, pendingDevAddrKey, deviceSessionTTL)
+		if _, err := pipe.Exec(ctx); err != nil {
 			return errors.Wrap(err, "exec error")
 		}
 	}
 
-	err = RedisClient().Set(devSessKey, b, deviceSessionTTL).Err()
+	err = RedisClient().Set(ctx, devSessKey, b, deviceSessionTTL).Err()
 	if err != nil {
 		return errors.Wrap(err, "set error")
 	}
@@ -495,7 +495,7 @@ func GetDeviceSession(ctx context.Context, devEUI lorawan.EUI64) (DeviceSession,
 	key := GetRedisKey(deviceSessionKeyTempl, devEUI)
 	var dsPB DeviceSessionPB
 
-	val, err := RedisClient().Get(key).Bytes()
+	val, err := RedisClient().Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			return DeviceSession{}, ErrDoesNotExist
@@ -515,7 +515,7 @@ func GetDeviceSession(ctx context.Context, devEUI lorawan.EUI64) (DeviceSession,
 func DeleteDeviceSession(ctx context.Context, devEUI lorawan.EUI64) error {
 	key := GetRedisKey(deviceSessionKeyTempl, devEUI)
 
-	val, err := RedisClient().Del(key).Result()
+	val, err := RedisClient().Del(ctx, key).Result()
 	if err != nil {
 		return errors.Wrap(err, "delete error")
 	}
@@ -574,7 +574,7 @@ func GetDeviceSessionsForDevAddr(ctx context.Context, devAddr lorawan.DevAddr) (
 func GetDevEUIsForDevAddr(ctx context.Context, devAddr lorawan.DevAddr) ([]lorawan.EUI64, error) {
 	key := GetRedisKey(devAddrKeyTempl, devAddr)
 
-	val, err := RedisClient().SMembers(key).Result()
+	val, err := RedisClient().SMembers(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return nil, nil
@@ -666,7 +666,7 @@ func GetDeviceSessionForPHYPayload(ctx context.Context, phy lorawan.PHYPayload, 
 func DeviceSessionExists(ctx context.Context, devEUI lorawan.EUI64) (bool, error) {
 	key := GetRedisKey(deviceSessionKeyTempl, devEUI)
 
-	r, err := RedisClient().Exists(key).Result()
+	r, err := RedisClient().Exists(ctx, key).Result()
 	if err != nil {
 		return false, errors.Wrap(err, "get exists error")
 	}
@@ -686,7 +686,7 @@ func SaveDeviceGatewayRXInfoSet(ctx context.Context, rxInfoSet DeviceGatewayRXIn
 		return errors.Wrap(err, "protobuf encode error")
 	}
 
-	err = RedisClient().Set(key, b, deviceSessionTTL).Err()
+	err = RedisClient().Set(ctx, key, b, deviceSessionTTL).Err()
 	if err != nil {
 		return errors.Wrap(err, "psetex error")
 	}
@@ -704,7 +704,7 @@ func SaveDeviceGatewayRXInfoSet(ctx context.Context, rxInfoSet DeviceGatewayRXIn
 func DeleteDeviceGatewayRXInfoSet(ctx context.Context, devEUI lorawan.EUI64) error {
 	key := GetRedisKey(deviceGatewayRXInfoSetKeyTempl, devEUI)
 
-	val, err := RedisClient().Del(key).Result()
+	val, err := RedisClient().Del(ctx, key).Result()
 	if err != nil {
 		return errors.Wrap(err, "delete error")
 	}
@@ -725,7 +725,7 @@ func GetDeviceGatewayRXInfoSet(ctx context.Context, devEUI lorawan.EUI64) (Devic
 	var rxInfoSetPB DeviceGatewayRXInfoSetPB
 	key := GetRedisKey(deviceGatewayRXInfoSetKeyTempl, devEUI)
 
-	val, err := RedisClient().Get(key).Bytes()
+	val, err := RedisClient().Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
 			return DeviceGatewayRXInfoSet{}, ErrDoesNotExist
@@ -753,7 +753,7 @@ func GetDeviceGatewayRXInfoSetForDevEUIs(ctx context.Context, devEUIs []lorawan.
 		keys = append(keys, GetRedisKey(deviceGatewayRXInfoSetKeyTempl, d))
 	}
 
-	bs, err := RedisClient().MGet(keys...).Result()
+	bs, err := RedisClient().MGet(ctx, keys...).Result()
 	if err != nil {
 		return nil, errors.Wrap(err, "get byte slices error")
 	}
