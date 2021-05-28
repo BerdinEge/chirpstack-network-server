@@ -32,6 +32,7 @@ func NewApplicationServerPool(client *ApplicationClient) asclient.Pool {
 // ApplicationClient is an application client for testing.
 type ApplicationClient struct {
 	HandleDataUpErr                error
+	HandleDataDownErr              error
 	HandleProprietaryUpErr         error
 	HandleDownlinkACKErr           error
 	HandleTxAckError               error
@@ -40,6 +41,7 @@ type ApplicationClient struct {
 	ReEncryptDeviceQueueItemsError error
 
 	HandleDataUpChan              chan as.HandleUplinkDataRequest
+	HandleDataDownChan            chan as.HandleDownlinkDataRequest
 	HandleProprietaryUpChan       chan as.HandleProprietaryUplinkRequest
 	HandleErrorChan               chan as.HandleErrorRequest
 	HandleDownlinkACKChan         chan as.HandleDownlinkACKRequest
@@ -50,6 +52,7 @@ type ApplicationClient struct {
 	ReEncryptDeviceQueueItemsChan chan as.ReEncryptDeviceQueueItemsRequest
 
 	HandleDataUpResponse              empty.Empty
+	HandleDataDownResponse            empty.Empty
 	HandleProprietaryUpResponse       empty.Empty
 	HandleErrorResponse               empty.Empty
 	HandleDownlinkACKResponse         empty.Empty
@@ -64,6 +67,7 @@ type ApplicationClient struct {
 func NewApplicationClient() *ApplicationClient {
 	return &ApplicationClient{
 		HandleDataUpChan:              make(chan as.HandleUplinkDataRequest, 100),
+		HandleDataDownChan:            make(chan as.HandleDownlinkDataRequest, 100),
 		HandleProprietaryUpChan:       make(chan as.HandleProprietaryUplinkRequest, 100),
 		HandleErrorChan:               make(chan as.HandleErrorRequest, 100),
 		HandleDownlinkACKChan:         make(chan as.HandleDownlinkACKRequest, 100),
@@ -82,6 +86,15 @@ func (t *ApplicationClient) HandleUplinkData(ctx context.Context, in *as.HandleU
 	}
 	t.HandleDataUpChan <- *in
 	return &t.HandleDataUpResponse, nil
+}
+
+// HandleDownlinkData method.
+func (t *ApplicationClient) HandleDownlinkData(ctx context.Context, in *as.HandleDownlinkDataRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
+	if t.HandleDataDownErr != nil {
+		return nil, t.HandleDataDownErr
+	}
+	t.HandleDataDownChan <- *in
+	return &t.HandleDataDownResponse, nil
 }
 
 // HandleProprietaryUplink method.
