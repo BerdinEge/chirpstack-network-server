@@ -12,6 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/brocaar/chirpstack-api/go/v3/as"
 	//"github.com/brocaar/chirpstack-api/go/v3/common"
@@ -51,11 +52,12 @@ type incompatibleCIDMapping struct {
 }
 
 type CtxToSend struct {
-	fcnt   uint32
-	ADR    bool
-	fport  *uint8
-	TXInfo *gw.DownlinkTXInfo
-	Dr     uint32
+	fcnt              uint32
+	ADR               bool
+	fport             *uint8
+	TXInfo            *gw.DownlinkTXInfo
+	Dr                uint32
+	ConfirmedDownlink lorawan.MType
 }
 
 var incompatibleMACCommands = []incompatibleCIDMapping{
@@ -111,6 +113,8 @@ var (
 	gatewayPreferMinMargin float64
 
 	ctxToSend CtxToSend
+
+	cmds []lorawan.Payload
 )
 
 var setMACCommandsSet = setMACCommands(
@@ -126,6 +130,7 @@ var setMACCommandsSet = setMACCommands(
 )
 
 var responseTasks = []func(*dataContext) error{
+	getApplicationServerClientForDataDown,
 	getDeviceProfile,
 	getServiceProfile,
 	setDeviceGatewayRXInfo,
@@ -171,6 +176,7 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
+	sendFOptsToApplicationServer,
 	sendDownlinkFrame,
 	saveDeviceSession,
 	saveDownlinkFrame,
@@ -179,6 +185,11 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 
 // Setup configures the package.
 func Setup(conf config.Config) error {
+
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: false,
+	})
+
 	nsConf := conf.NetworkServer.NetworkSettings
 	rejoinRequestEnabled = nsConf.RejoinRequest.Enabled
 	rejoinRequestMaxCountN = nsConf.RejoinRequest.MaxCountN
@@ -222,7 +233,7 @@ func Setup(conf config.Config) error {
 type dataContext struct {
 	ctx context.Context
 
-	CratedAt time.Time
+	CratedAt string
 
 	// Database connection or transaction.
 	DB              sqlx.Ext
@@ -285,6 +296,8 @@ type dataContext struct {
 
 	// AS client to publish downlink events to AS.
 	ApplicationServerClient as.ApplicationServerServiceClient
+
+	MACPayload *lorawan.MACPayload
 }
 
 type downlinkFrameItem struct {
@@ -1062,11 +1075,6 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 		// In case mac-commands are disabled in the ChirpStack Network Server configuration,
 		// only allow external mac-commands (e.g. scheduled by an external
 		// controller).
-		//log.Info("-")
-		//log.Info("ctx: ", ctx)
-		//log.Info("-")
-		//log.Info("MACCommands: ", ctx.MACCommands)
-		//log.Info("-")
 		if disableMACCommands {
 			var externalMACCommands []storage.MACCommandBlock
 
@@ -1094,10 +1102,10 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 				return errors.Wrap(err, "set mac-command pending error")
 			}
 
-			fmt.Printf(" asdasdsa")
+			fmt.Println(" asdasdsa")
 			log.Info("block: ", block)
 			log.Info("block.MACCommands: ", block.MACCommands)
-			fmt.Printf(" asdasdasdas")
+			fmt.Println(" asdasdasdas")
 
 			// delete from queue, if external
 			if block.External {
@@ -1106,12 +1114,7 @@ func setMACCommands(funcs ...func(*dataContext) error) func(*dataContext) error 
 				}
 			}
 		}
-		//log.Info("-")
-		//log.Info("ctx: ", ctx)
-		//log.Info("-")
-		//log.Info("MACCommands: ", ctx.MACCommands)
-		//log.Info("-")
-		log.Info("dowmnlik komutları set edildi!!!")
+		log.Info("dowmnlik mac komutları set edildi!!!")
 		return nil
 	}
 }
@@ -1322,10 +1325,8 @@ func stopOnNothingToSend(ctx *dataContext) error {
 // as only then we know which of the frame-counters to increment
 // (AFCntDown vs NFCntDown).
 func setPHYPayloads(ctx *dataContext) error {
-	log.Info("setPHYPayloads metodu başladı !!!")
-	//log.Info("-")
-	//log.Info("şifrelenmemiş ctx: ", ctx)
-	//log.Info("-")
+	log.Info("len(ctx.DownlinkFrameItems): ", len(ctx.DownlinkFrameItems))
+	log.Info("ctx.DownlinkFrameItems: ", ctx.DownlinkFrameItems)
 	for i := range ctx.DownlinkFrameItems {
 		var macCommandSize int
 		var macCommands []lorawan.Payload
@@ -1345,28 +1346,10 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			ctx.DownlinkFrameItems[i].RemainingPayloadSize = ctx.DownlinkFrameItems[i].RemainingPayloadSize - s
 			macCommandSize += s
-			//log.Info("macCommandSize: ", macCommandSize)
 
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
 			}
-			//for l := range macCommands {
-			//	log.Info("macCommands[index]: ", *&macCommands[l])
-			//}
-			log.Info("|||||||||||||||||||||||||||||||||||||||||||||||||||")
-			for _, element := range ctx.MACCommands {
-				log.Info("--")
-				//log.Info("ctx.MACCommands: ", element)
-				for _, element := range element.MACCommands {
-					log.Info("---")
-					log.Info("element.CID: (type) ", element.CID)
-					log.Info("element.Payload: (load) ", element.Payload)
-					log.Info("ctx.DeviceSession.DevAddr: ", ctx.DeviceSession.DevAddr)
-					log.Info("ctx.DeviceSession.DevEUI: ", ctx.DeviceSession.DevEUI)
-				}
-			}
-
-			log.Info("|||||||||||||||||||||||||||||||||||||||||||||||||||")
 		}
 
 		// LoRaWAN MHDR
@@ -1397,7 +1380,8 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			// Set the mac-commands as FRMPayload.
 			macPL.FRMPayload = macCommands
-
+			//log.Info("FRMPayload DOLDURULDU")
+			//cmds = &macPL.FRMPayload
 			// MAC-layer FPort.
 			fPort := uint8(0)
 			macPL.FPort = &fPort
@@ -1411,9 +1395,16 @@ func setPHYPayloads(ctx *dataContext) error {
 		// RemainingPayloadSize.
 		if macCommandSize <= 15 {
 			// Set the mac-commands as FOpts.
+			log.Info("fopts'a atanacak macCommands: ", macCommands)
+			for _, element := range macCommands {
+				log.Info("mac komutları: ", element)
+			}
 			macPL.FHDR.FOpts = macCommands
-			log.Info("------")
-			//log.Info("macPL.FHDR.FOpts: ", macCommands)
+			if macPL.FHDR.FOpts != nil {
+				log.Info("FOPTS DOLDURULDU")
+				cmds = macPL.FHDR.FOpts
+			}
+
 			// Test if we still can send a device-queue item.
 			if ctx.DeviceQueueItem != nil && len(ctx.DeviceQueueItem.FRMPayload) <= ctx.DownlinkFrameItems[i].RemainingPayloadSize {
 				// Set the device-queue item.
@@ -1422,6 +1413,8 @@ func setPHYPayloads(ctx *dataContext) error {
 				macPL.FRMPayload = []lorawan.Payload{
 					&lorawan.DataPayload{Bytes: ctx.DeviceQueueItem.FRMPayload},
 				}
+				//log.Info("FRMPayload DOLDURULDU")
+				//cmds = &macPL.FRMPayload
 				//log.Info("macPL.FRMPayload: ", macPL.FRMPayload)
 				if ctx.DeviceQueueItem.Confirmed {
 					mhdr.MType = lorawan.ConfirmedDataDown
@@ -1431,20 +1424,25 @@ func setPHYPayloads(ctx *dataContext) error {
 			} else if ctx.DeviceQueueItem != nil {
 				macPL.FHDR.FCtrl.FPending = true
 			}
+			log.Info("                  macPL.FHDR.FOpts: ", macPL.FHDR.FOpts)
+			log.Info("                  macPL.FRMPayload: ", macPL.FRMPayload)
 		}
 
 		ctxToSend.fcnt = macPL.FHDR.FCnt
 		ctxToSend.ADR = macPL.FHDR.FCtrl.ADR
 		ctxToSend.fport = macPL.FPort
-		ctxToSend.TXInfo = ctx.DownlinkFrame.TxInfo
-		ctxToSend.Dr = uint32(ctx.RXPacket.DR)
-		ctx.CratedAt = time.Now()
+		ctxToSend.TXInfo = ctx.DownlinkFrameItems[0].DownlinkFrameItem.TxInfo //todo check
+		ctxToSend.Dr = uint32(ctx.DeviceSession.DR)
+		ctxToSend.ConfirmedDownlink = mhdr.MType
+		ctx.CratedAt = time.Now().String()
 
 		// Construct LoRaWAN PHYPayload.
 		phy := lorawan.PHYPayload{
 			MHDR:       mhdr,
 			MACPayload: &macPL,
 		}
+		//log.Info("macPL oluşturulup phy'ye atanmış hali: ", macPL)
+		//log.Info("&macPL oluşturulup phy'ye atanmış hali: ", &macPL)
 
 		// Encrypt FRMPayload mac-commands.
 		if macPL.FPort != nil && *macPL.FPort == 0 {
@@ -1465,10 +1463,17 @@ func setPHYPayloads(ctx *dataContext) error {
 			return errors.Wrap(err, "set MIC error")
 		}
 
+		var macpll = phy.MACPayload.(*lorawan.MACPayload)
+		log.Info("macpll.FHDR.FOpts: ", macpll.FHDR.FOpts)
+		log.Info("macpll.FHDR.FOpts[0]: ", macpll.FHDR.FOpts[0])
+
+		log.Info("phy (encrypted, marşallanmamış): ", phy)
+
 		b, err := phy.MarshalBinary()
 		if err != nil {
 			return errors.Wrap(err, "marshal binary error")
 		}
+		//log.Info("b(marshalized): ", b)
 
 		ctx.DownlinkFrameItems[i].DownlinkFrameItem.PhyPayload = b
 		ctx.DownlinkFrame.Items = append(ctx.DownlinkFrame.Items, &ctx.DownlinkFrameItems[i].DownlinkFrameItem)
@@ -1478,6 +1483,7 @@ func setPHYPayloads(ctx *dataContext) error {
 }
 
 func sendFOptsToApplicationServer(ctx *dataContext) error {
+	fmt.Println("sendFOptsToApplicationServer METODU BAŞLADI !!!")
 	for _, element := range ctx.MACCommands {
 		for _, element := range element.MACCommands {
 			log.Info("element.CID: (type) ", element.CID)
@@ -1487,31 +1493,71 @@ func sendFOptsToApplicationServer(ctx *dataContext) error {
 		}
 	}
 
+	SentAtTimestamppb := timestamppb.Now()
 	publishDataDownReq := as.HandleDownlinkDataRequest{
 		DevEui:            ctx.DeviceSession.DevEUI[:],
 		JoinEui:           ctx.DeviceSession.JoinEUI[:],
 		FCnt:              ctxToSend.fcnt,
 		Adr:               ctxToSend.ADR,
 		TxInfo:            ctxToSend.TXInfo,
-		FPort:             uint32(*ctxToSend.fport),
-		ConfirmedDownlink: ctx.RXPacket.PHYPayload.MHDR.MType == lorawan.ConfirmedDataDown,
+		ConfirmedDownlink: ctxToSend.ConfirmedDownlink == lorawan.ConfirmedDataDown,
+		SentAt:            SentAtTimestamppb,
 	}
 
+	fmt.Println("publishDataDownReq AYARLANIYOR !!!")
 	publishDataDownReq.Dr = uint32(ctx.RXPacket.DR)
+	if ctxToSend.fport != nil {
+		publishDataDownReq.FPort = uint32(*ctxToSend.fport)
+	}
 
 	if ctx.DeviceSession.AppSKeyEvelope != nil {
 		ctx.DeviceSession.AppSKeyEvelope = nil
 	}
 
+	log.Info("len(ctx.MACCommands): ", len(ctx.MACCommands))
 	// The DataPayload is only used for FPort != 0 (or nil)
-	if publishDataDownReq.FPort != 0 && len(ctx.MACCommands) == 1 {
-		var dataPl = ctx.DownlinkFrameItems[0].DownlinkFrameItem.PhyPayload
-		publishDataDownReq.Data = dataPl
+	if /*publishDataDownReq.FPort != 0 &&*/ len(ctx.MACCommands) == 1 {
+		//var dataPl = ctx.DownlinkFrameItems[0].DownlinkFrameItem.PhyPayload //todo değiştir, dümdüz bir []byte olamaz bu. İçindeki macpayload ya da onun içindeki fopts sahası gönderilmeli.
+		//sadece fopts sahası gönderilmeli, tüm payload değil. Zaten buraya gelene kadar fopts sahası da payload nesnesi de marşal edilmiş oluyor. FOpts'un ilk marşal edilmiş halini burada çekip göndermeyi dene.
+		//publishDataDownReq.Data = dataPl
+		log.Info("cmds: ", cmds)
+		log.Info("cmds[0]: ", cmds[0])
+		//log.Info("*cmds: ", *cmds)
+		//var value = cmds
+		//log.Info("aslkdjasldkjsa[0]: ", value[0])
+		//dataPL, ok := value[0].(*lorawan.DataPayload) //todo incele
+		//log.Info("aslkdjasldkjsa[0]: ", cmds[0])
+		dataPL, ok := cmds[0].(*lorawan.DataPayload) //burada hata veriyor
+		log.Info("dataPL: ", dataPL)
+		var encrypted_fopts, err = lorawan.EncryptFOpts(ctx.DeviceSession.NwkSEncKey, true, false, ctx.DeviceSession.DevAddr, publishDataDownReq.FCnt, dataPL.Bytes)
+		if err != nil {
+			return errors.Wrap(err, "decrypt FOpts error")
+		}
+		dataPL.Bytes = encrypted_fopts
+		dataPL.MarshalBinary()
+		log.Info("downlin dataPL: ", dataPL)
+		log.Info("downlin dataPL.Bytes: ", dataPL.Bytes)
+		if !ok {
+			return fmt.Errorf("expected type *lorawan.DataPayload, got %T", cmds[0])
+		}
+		publishDataDownReq.Data = dataPL.Bytes
 	}
 
+	/*dataPL, ok := ctx.MACPayload.FRMPayload[0].(*lorawan.DataPayload) //todo incele
+	if !ok {
+		return fmt.Errorf("expected type *lorawan.DataPayload, got %T", ctx.MACPayload.FRMPayload[0])
+	}
+	publishDataUpReq.Data = dataPL.Bytes*/
+
 	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataDownReq as.HandleDownlinkDataRequest) {
+		fmt.Println("publishDataDownReq  GİDİYOR !!!")
 		ctxTimeout, cancel := context.WithTimeout(ctx, applicationClientTimeout)
 		defer cancel()
+		fmt.Printf("%+v\n", publishDataDownReq)
+		fmt.Printf("%+v\n", &publishDataDownReq)
+		log.SetFormatter(&log.TextFormatter{
+			FullTimestamp: false,
+		})
 
 		if _, err := asClient.HandleDownlinkData(ctxTimeout, &publishDataDownReq); err != nil {
 			log.WithFields(log.Fields{
@@ -1524,22 +1570,21 @@ func sendFOptsToApplicationServer(ctx *dataContext) error {
 }
 
 func sendDownlinkFrame(ctx *dataContext) error {
-	log.Info("--------sendDownlinkFrame metodu başladı--------")
 	if len(ctx.DownlinkFrameItems) == 0 {
 		return nil
 	}
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp: false,
+	})
 
-	for _, element := range ctx.MACCommands {
+	/*for _, element := range ctx.MACCommands {
 		for _, element := range element.MACCommands {
+
 			log.Info("sendDownlinkFrame ctx.MACCommands[x].MACCommands[x]: ")
 			log.Info("element.CID: ", element.CID)
 			log.Info("element.Payload: ", element.Payload)
 		}
-	}
-	//log.Info("-")
-	//log.Info("-")
-	//log.Info("sendDownlinkFrame ctx.MACCommands[0].MACCommands[0].Payload: ", ctx.MACCommands[0].MACCommands[0].Payload)
-	//log.Info("-")
+	}*/
 
 	// send the packet to the gateway
 	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
@@ -1635,6 +1680,23 @@ func saveDeviceSession(ctx *dataContext) error {
 	if err := storage.SaveDeviceSession(ctx.ctx, ctx.DeviceSession); err != nil {
 		return errors.Wrap(err, "save device-session error")
 	}
+	return nil
+}
+
+func getApplicationServerClientForDataDown(ctx *dataContext) error {
+	rp, err := storage.GetRoutingProfile(ctx.ctx, storage.DB(), ctx.DeviceSession.RoutingProfileID)
+	if err != nil {
+		return errors.Wrap(err, "get routing-profile error")
+	}
+
+	asClient, err := applicationserver.Pool().Get(rp.ASID, []byte(rp.CACert), []byte(rp.TLSCert), []byte(rp.TLSKey))
+	if err != nil {
+		return errors.Wrap(err, "get application-server client error")
+	}
+
+	ctx.ApplicationServerClient = asClient
+
+	fmt.Printf("ApplicationServerClient AYARLANDI DEWAMKE !!!")
 	return nil
 }
 

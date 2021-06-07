@@ -166,6 +166,7 @@ func (b *Backend) SendGatewayConfigPacket(configPacket gw.GatewayConfiguration) 
 }
 
 func (b *Backend) publishCommand(fields log.Fields, gatewayID lorawan.EUI64, command string, msg proto.Message) error {
+	fmt.Println("(b *Backend) publishCommand(fields log.Fields, gatewayID lorawan.EUI64, command string, msg proto.Message) BAŞLADI !!!")
 	t := b.getGatewayMarshaler(gatewayID)
 	bb, err := marshaler.MarshalCommand(t, msg)
 	if err != nil {

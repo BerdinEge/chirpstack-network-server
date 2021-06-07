@@ -32,6 +32,7 @@ func NewApplicationServerPool(client *ApplicationClient) asclient.Pool {
 // ApplicationClient is an application client for testing.
 type ApplicationClient struct {
 	HandleDataUpErr                error
+	HandlePayloadACKDownErr        error
 	HandleDataDownErr              error
 	HandleProprietaryUpErr         error
 	HandleDownlinkACKErr           error
@@ -52,6 +53,7 @@ type ApplicationClient struct {
 	ReEncryptDeviceQueueItemsChan chan as.ReEncryptDeviceQueueItemsRequest
 
 	HandleDataUpResponse              empty.Empty
+	HandlePayloadACKDownResponse      empty.Empty
 	HandleDataDownResponse            empty.Empty
 	HandleProprietaryUpResponse       empty.Empty
 	HandleErrorResponse               empty.Empty

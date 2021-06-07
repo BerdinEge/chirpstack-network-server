@@ -350,7 +350,6 @@ type SessionData struct {
 // SaveDeviceSession saves the device-session. In case it doesn't exist yet
 // it will be created.
 func SaveDeviceSession(args ...interface{}) error {
-	fmt.Printf(" !!!        SaveDeviceSession metodu başladı       !!!")
 	//ctx context.Context, s DeviceSession
 	if len(args) > 3 {
 		return fmt.Errorf("Wrong number of arguments passed")
