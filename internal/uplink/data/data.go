@@ -620,8 +620,6 @@ func sendFRMPayloadToApplicationServer(ctx *dataContext) error {
 				AesKey:   ctx.DeviceSession.AppSKeyEvelope.AESKey,
 			},
 		}
-
-		ctx.DeviceSession.AppSKeyEvelope = nil
 	}
 
 	if ctx.ServiceProfile.AddGWMetadata {
@@ -654,6 +652,8 @@ func sendFRMPayloadToApplicationServer(ctx *dataContext) error {
 			}).WithError(err).Error("publish uplink data to application-server error")
 		}
 	}(ctx.ctx, ctx.ApplicationServerClient, publishDataUpReq)
+
+	ctx.DeviceSession.AppSKeyEvelope = nil
 
 	return nil
 }
