@@ -122,6 +122,11 @@ func (ctx *joinContext) setContextFromJoinRequestPHYPayload() error {
 		return fmt.Errorf("expected *lorawan.JoinRequestPayload, got: %T", ctx.RXPacket.PHYPayload.MACPayload)
 	}
 	ctx.JoinRequestPayload = jrPL
+	log.Info("**********************************")
+	log.Info("**********************************")
+	log.Info("**********************************")
+	log.Info("JOIN OLMAYA ÇALIŞAN DEVICE'IN DEVEUI'I: ")
+	log.Info(jrPL.DevEUI)
 
 	return nil
 }

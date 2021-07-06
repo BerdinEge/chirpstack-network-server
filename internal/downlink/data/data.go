@@ -3,7 +3,9 @@ package data
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -60,6 +62,12 @@ type CtxToSend struct {
 	ConfirmedDownlink lorawan.MType
 }
 
+// AES128Key represents a 128 bit AES key.
+//type AES128Key [16]byte
+
+// DevAddr represents the device address.
+type DevAddr [4]byte
+
 var incompatibleMACCommands = []incompatibleCIDMapping{
 	{CID: lorawan.NewChannelReq, IncompatibleCIDs: []lorawan.CID{lorawan.LinkADRReq}},
 	{CID: lorawan.LinkADRReq, IncompatibleCIDs: []lorawan.CID{lorawan.NewChannelReq}},
@@ -114,7 +122,11 @@ var (
 
 	ctxToSend CtxToSend
 
-	cmds []lorawan.Payload
+	cryptedMarshalledFoptsToSend []byte
+
+	plToSend []lorawan.Payload
+
+	bytesToSend []byte
 )
 
 var setMACCommandsSet = setMACCommands(
@@ -1329,7 +1341,7 @@ func setPHYPayloads(ctx *dataContext) error {
 	log.Info("ctx.DownlinkFrameItems: ", ctx.DownlinkFrameItems)
 	for i := range ctx.DownlinkFrameItems {
 		var macCommandSize int
-		var macCommands []lorawan.Payload
+		var macCommands []lorawan.Payload // ekle direk DB'ye
 
 		// collect all mac-commands up to RemainingPayloadSize bytes.
 		for j := range ctx.MACCommands {
@@ -1349,6 +1361,24 @@ func setPHYPayloads(ctx *dataContext) error {
 
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
+				log.Info("-----ctx.MACCommands[j].MACCommands[k] = ", ctx.MACCommands[j].MACCommands[k])
+				log.Info("-----ctx.MACCommands[j].MACCommands[k].CID = ", ctx.MACCommands[j].MACCommands[k].CID)
+				log.Info("-----ctx.MACCommands[j].MACCommands[k].Payload = ", ctx.MACCommands[j].MACCommands[k].Payload)
+
+				//b, err := ctx.MACCommands[j].MACCommands[k].MarshalBinary()
+				//if err != nil {
+				//	return err
+				//}
+				//log.Info("-----mac command as bytes: ", b)
+
+				out, err := json.Marshal(ctx.MACCommands[j].MACCommands[k])
+				if err != nil {
+					panic(err)
+				}
+
+				//fmt.Println(string(out))
+				bytesToSend = out
+
 			}
 		}
 
@@ -1395,15 +1425,48 @@ func setPHYPayloads(ctx *dataContext) error {
 		// RemainingPayloadSize.
 		if macCommandSize <= 15 {
 			// Set the mac-commands as FOpts.
-			log.Info("fopts'a atanacak macCommands: ", macCommands)
-			for _, element := range macCommands {
-				log.Info("mac komutları: ", element)
-			}
+			log.Info("fopts'a atanacak macCommands(FOpts): ", macCommands)
+			//for _, element := range macCommands {
+			//	log.Info("mac komutları: ", element)
+			//	elmntAsDP, ok := element.(*lorawan.DataPayload)
+			//	if !ok {
+			//		return fmt.Errorf("expected type *lorawan.DataPayload, got %T", element)
+			//	}
+			//	log.Info("elmntAsDP (mac komutları): ", elmntAsDP)
+			//}
 			macPL.FHDR.FOpts = macCommands
-			if macPL.FHDR.FOpts != nil {
-				log.Info("FOPTS DOLDURULDU")
-				cmds = macPL.FHDR.FOpts
-			}
+
+			//for _, element := range macPL.FHDR.FOpts {
+			//	log.Info("mac komutu: ", element)
+			//	var asdlkaskndlksan = element
+			//	elmntAsDP, ok := asdlkaskndlksan.(*lorawan.DataPayload)
+			//	if !ok {
+			//		return fmt.Errorf("expected type *lorawan.DataPayload, got %T", element)
+			//	}
+			//	log.Info("elmntAsDP (mac komutları): ", elmntAsDP)
+			//}
+
+			//plToSend = macPL.FHDR.FOpts
+			////var macB []byte
+			//b, err := macPL.FHDR.FOpts[0].MarshalBinary()
+			//if err != nil {
+			//	return err
+			//}
+			//log.Info("b: (marşallı mac comudu) ", b)
+			//macB = append(macB, b...)
+			//
+			//log.Info("ctx.DeviceSession.DevAddr: ", ctx.DeviceSession.DevAddr)
+			//myString := string(ctx.DeviceSession.DevAddr[:])
+			//myba := byte4PutString(myString)
+			//log.Info("ctx.DeviceSession.DevAddr[4] (myba): ", myba)
+			//foptsdata, err := EncryptFOpts(ctx.DeviceSession.NwkSEncKey, true, false, myba, macPL.FHDR.FCnt, macB)
+			//if err != nil {
+			//	return err
+			//}
+
+			//cryptedMarshalledFoptsToSend = foptsdata
+
+			//log.Info("data: ", foptsdata)
 
 			// Test if we still can send a device-queue item.
 			if ctx.DeviceQueueItem != nil && len(ctx.DeviceQueueItem.FRMPayload) <= ctx.DownlinkFrameItems[i].RemainingPayloadSize {
@@ -1424,8 +1487,8 @@ func setPHYPayloads(ctx *dataContext) error {
 			} else if ctx.DeviceQueueItem != nil {
 				macPL.FHDR.FCtrl.FPending = true
 			}
-			log.Info("                  macPL.FHDR.FOpts: ", macPL.FHDR.FOpts)
-			log.Info("                  macPL.FRMPayload: ", macPL.FRMPayload)
+			//log.Info("                  macPL.FHDR.FOpts: ", macPL.FHDR.FOpts)
+			//log.Info("                  macPL.FRMPayload: ", macPL.FRMPayload)
 		}
 
 		ctxToSend.fcnt = macPL.FHDR.FCnt
@@ -1451,6 +1514,8 @@ func setPHYPayloads(ctx *dataContext) error {
 			}
 		}
 
+		//var macPayloadNewa = phy.MACPayload.(*lorawan.MACPayload)
+		//log.Info("foptsfield.FHDR.FOpts: (kriptosuz)", macPayloadNewa.FHDR.FOpts)
 		// Encrypt FOpts mac-commands (LoRaWAN 1.1).
 		if ctx.DeviceSession.GetMACVersion() != lorawan.LoRaWAN1_0 {
 			if err := phy.EncryptFOpts(ctx.DeviceSession.NwkSEncKey); err != nil {
@@ -1458,14 +1523,19 @@ func setPHYPayloads(ctx *dataContext) error {
 			}
 		}
 
+		//var macPayloadNew = phy.MACPayload.(*lorawan.MACPayload)
+		//log.Info("foptsfield.FHDR.FOpts: (kriptosuz)", macPayloadNew.FHDR.FOpts)
+		//if err := phy.EncryptFOpts(ctx.DeviceSession.NwkSEncKey); err != nil {
+		//	return errors.Wrap(err, "encrypt FOpts error")
+		//}
+		//log.Info("foptsfield.FHDR.FOpts: (kriptolu)", macPayloadNew.FHDR.FOpts)
+		//var macPayloadNewFopts = macPayloadNew.FHDR.FOpts[0].(*lorawan.DataPayload)
+		//log.Info("macPayloadNewFopts: ", macPayloadNewFopts)
+
 		// Set MIC.
 		if err := phy.SetDownlinkDataMIC(ctx.DeviceSession.GetMACVersion(), ctx.DeviceSession.FCntUp, ctx.DeviceSession.SNwkSIntKey); err != nil {
 			return errors.Wrap(err, "set MIC error")
 		}
-
-		var macpll = phy.MACPayload.(*lorawan.MACPayload)
-		log.Info("macpll.FHDR.FOpts: ", macpll.FHDR.FOpts)
-		log.Info("macpll.FHDR.FOpts[0]: ", macpll.FHDR.FOpts[0])
 
 		log.Info("phy (encrypted, marşallanmamış): ", phy)
 
@@ -1473,7 +1543,10 @@ func setPHYPayloads(ctx *dataContext) error {
 		if err != nil {
 			return errors.Wrap(err, "marshal binary error")
 		}
-		//log.Info("b(marshalized): ", b)
+		log.Info("b(marshalized): ", b)
+
+		//bytesToSend = b[8:13]
+		//log.Info("bytesToSend: ", bytesToSend)
 
 		ctx.DownlinkFrameItems[i].DownlinkFrameItem.PhyPayload = b
 		ctx.DownlinkFrame.Items = append(ctx.DownlinkFrame.Items, &ctx.DownlinkFrameItems[i].DownlinkFrameItem)
@@ -1516,38 +1589,17 @@ func sendFOptsToApplicationServer(ctx *dataContext) error {
 
 	log.Info("len(ctx.MACCommands): ", len(ctx.MACCommands))
 	// The DataPayload is only used for FPort != 0 (or nil)
-	if /*publishDataDownReq.FPort != 0 &&*/ len(ctx.MACCommands) == 1 {
-		//var dataPl = ctx.DownlinkFrameItems[0].DownlinkFrameItem.PhyPayload //todo değiştir, dümdüz bir []byte olamaz bu. İçindeki macpayload ya da onun içindeki fopts sahası gönderilmeli.
-		//sadece fopts sahası gönderilmeli, tüm payload değil. Zaten buraya gelene kadar fopts sahası da payload nesnesi de marşal edilmiş oluyor. FOpts'un ilk marşal edilmiş halini burada çekip göndermeyi dene.
-		//publishDataDownReq.Data = dataPl
-		log.Info("cmds: ", cmds)
-		log.Info("cmds[0]: ", cmds[0])
-		//log.Info("*cmds: ", *cmds)
-		//var value = cmds
-		//log.Info("aslkdjasldkjsa[0]: ", value[0])
-		//dataPL, ok := value[0].(*lorawan.DataPayload) //todo incele
-		//log.Info("aslkdjasldkjsa[0]: ", cmds[0])
-		dataPL, ok := cmds[0].(*lorawan.DataPayload) //burada hata veriyor
-		log.Info("dataPL: ", dataPL)
-		var encrypted_fopts, err = lorawan.EncryptFOpts(ctx.DeviceSession.NwkSEncKey, true, false, ctx.DeviceSession.DevAddr, publishDataDownReq.FCnt, dataPL.Bytes)
-		if err != nil {
-			return errors.Wrap(err, "decrypt FOpts error")
-		}
-		dataPL.Bytes = encrypted_fopts
-		dataPL.MarshalBinary()
-		log.Info("downlin dataPL: ", dataPL)
-		log.Info("downlin dataPL.Bytes: ", dataPL.Bytes)
-		if !ok {
-			return fmt.Errorf("expected type *lorawan.DataPayload, got %T", cmds[0])
-		}
-		publishDataDownReq.Data = dataPL.Bytes
-	}
+	//if /*publishDataDownReq.FPort != 0 &&*/ len(ctx.MACCommands) == 1 {
+	//	log.Info("dataPL: ", dataPL)
+	//	publishDataDownReq.Data = dataPL.Bytes // frmpayload göndermek denenebilir öncesinde
+	//}
 
-	/*dataPL, ok := ctx.MACPayload.FRMPayload[0].(*lorawan.DataPayload) //todo incele
-	if !ok {
-		return fmt.Errorf("expected type *lorawan.DataPayload, got %T", ctx.MACPayload.FRMPayload[0])
-	}
-	publishDataUpReq.Data = dataPL.Bytes*/
+	//lwplarrayDataPL, ok := plToSend[0].(*lorawan.DataPayload)
+	//if !ok {
+	//	return fmt.Errorf("expected type *lorawan.DataPayload, got %T", plToSend[0])
+	//}
+	//lwplarrayDataPL.Bytes = cryptedMarshalledFoptsToSend
+	publishDataDownReq.Data = /*cryptedMarshalledFoptsToSend*/ bytesToSend
 
 	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataDownReq as.HandleDownlinkDataRequest) {
 		fmt.Println("publishDataDownReq  GİDİYOR !!!")
@@ -1854,4 +1906,69 @@ func setDeviceQueueItemRetryAfter(ctx *dataContext) error {
 // with the actual device-session.
 func returnInvalidDeviceClassError(ctx *dataContext) error {
 	return errors.New("the device is in an invalid device-class for this action")
+}
+
+func EncryptFOpts(nwkSEncKey lorawan.AES128Key, aFCntDown, uplink bool, devAddr DevAddr, fCnt uint32, data []byte) ([]byte, error) {
+	if len(data) > 15 {
+		return nil, errors.New("lorawan: max size of FOpts is 15 bytes")
+	}
+
+	block, err := aes.NewCipher(nwkSEncKey[:])
+	if err != nil {
+		return nil, err
+	}
+	if block.BlockSize() != 16 {
+		return nil, errors.New("lorawan: block size of 16 was expected")
+	}
+
+	a := make([]byte, 16)
+	a[0] = 0x01
+	if aFCntDown {
+		a[4] = 0x02
+	} else {
+		a[4] = 0x01
+	}
+
+	if !uplink {
+		a[5] = 0x01
+	}
+
+	b, err := devAddr.MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+	copy(a[6:10], b)
+
+	a[15] = 0x01
+
+	binary.LittleEndian.PutUint32(a[10:14], fCnt)
+
+	s := make([]byte, 16)
+	block.Encrypt(s, a)
+
+	for i := range data {
+		data[i] ^= s[i]
+	}
+
+	return data, nil
+}
+
+// MarshalBinary marshals the object in binary form.
+func (a DevAddr) MarshalBinary() ([]byte, error) {
+	out := make([]byte, len(a))
+	for i, v := range a {
+		// little endian
+		out[len(a)-i-1] = v
+	}
+	return out, nil
+}
+
+func byte4PutString(s string) [4]byte {
+	var a [4]byte
+	if len(s) > 4 {
+		copy(a[:], s)
+	} else {
+		copy(a[4-len(s):], s)
+	}
+	return a
 }

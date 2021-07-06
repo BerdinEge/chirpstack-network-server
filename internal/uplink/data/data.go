@@ -118,8 +118,8 @@ func setContextFromDataPHYPayload(ctx *dataContext) error {
 		return fmt.Errorf("expected *lorawan.MACPayload, got: %T", ctx.RXPacket.PHYPayload.MACPayload)
 	}
 	ctx.MACPayload = macPL
-	log.Info("uplink macPL initilized: ctx.MACPayload.FRMPayload", ctx.MACPayload.FRMPayload)
-	log.Info("uplink macPL initilized: ctx.MACPayload.FRMPayload[0] ", ctx.MACPayload.FRMPayload[0])
+	log.Info("uplink ctx.MACPayload initilized: ctx.MACPayload.FRMPayload", ctx.MACPayload.FRMPayload)
+	log.Info("uplink ctx.MACPayload initilized: ctx.MACPayload.FRMPayload[0] ", ctx.MACPayload.FRMPayload[0])
 	return nil
 }
 
@@ -377,18 +377,37 @@ func decryptFOptsMACCommands(ctx *dataContext) error {
 func decryptFRMPayloadMACCommands(ctx *dataContext) error {
 	// only decrypt when FPort is equal to 0
 	log.Info("DECRYPT METODU İÇİ")
-	log.Info("ctx.MACPayload: ", ctx.MACPayload)
 	log.Info("ctx.RXPacket.PHYPayload: ", ctx.RXPacket.PHYPayload)
+	log.Info("ctx.RXPacket.PHYPayload.MACPayload: ", ctx.RXPacket.PHYPayload.MACPayload)
+	log.Info("ctx.MACPayload: ", ctx.MACPayload)
 	log.Info("*ctx.MACPayload.FPort: ", *ctx.MACPayload.FPort)
 	if ctx.MACPayload.FPort != nil && *ctx.MACPayload.FPort == 0 {
 		if err := ctx.RXPacket.PHYPayload.DecryptFRMPayload(ctx.DeviceSession.NwkSEncKey); err != nil {
+			log.Info("err: ", err)
 			return errors.Wrap(err, "decrypt FRMPayload error")
+		} else {
+			log.Info("DECRYPT EDİLDİ")
 		}
-		log.Info("DECRYPT EDİLDİ")
 	}
 	log.Info("DECRYPT METODU BİTİŞİ")
-	log.Info("ctx.MACPayload: ", ctx.MACPayload)
 	log.Info("ctx.RXPacket.PHYPayload: ", ctx.RXPacket.PHYPayload)
+	log.Info("ctx.MACPayload.FRMPayload[0]: ", ctx.MACPayload.FRMPayload[0])
+	//for i := range ctx.MACPayload.FRMPayload {
+	//		log.Info("ctx.MACPayload.FRMPayload[i]: ", ctx.MACPayload.FRMPayload[i]) //ADRESTEKİ DEĞERİ YAZDIRMAYI DENE
+	//		dataPL, ok := ctx.MACPayload.FRMPayload[i].(*lorawan.DataPayload)
+	//		if !ok {
+	//			return fmt.Errorf("TYPECAST ERROR DATAPL expected type *lorawan.DataPayload, got %T", ctx.MACPayload.FRMPayload[i])
+	//		}
+	//		log.Info("dataPL: ", dataPL)
+	//		log.Info("dataPL.Bytes: ", dataPL.Bytes)
+	//		//var mpl *lorawan.MACPayload
+	//		//err := mpl.UnmarshalBinary(true, dataPL.Bytes)
+	//		//if err == nil {
+	//		//	log.Info("mpl.UnmarshalBinary: ", mpl)
+	//		//}
+	//		log.Info("unmarshal error: ", ctx.MACPayload.UnmarshalBinary(true, dataPL.Bytes))
+	//		log.Info("ctx.MACPayload.FRMPayload[i] (unmarshalled): ", ctx.MACPayload.FRMPayload[i])
+	//}
 
 	return nil
 }
@@ -617,14 +636,12 @@ func sendFRMPayloadToApplicationServer(ctx *dataContext) error {
 
 	// The DataPayload is only used for FPort != 0 (or nil)
 	if ctx.MACPayload.FPort != nil && *ctx.MACPayload.FPort != 0 && len(ctx.MACPayload.FRMPayload) == 1 {
-		dataPL, ok := ctx.MACPayload.FRMPayload[0].(*lorawan.DataPayload) //todo incele
+		dataPL, ok := ctx.MACPayload.FRMPayload[0].(*lorawan.DataPayload) //krıptolu
 		if !ok {
 			return fmt.Errorf("expected type *lorawan.DataPayload, got %T", ctx.MACPayload.FRMPayload[0])
 		}
-		log.Info("uplink dataPL: ", dataPL)
-		log.Info("uplink *dataPL: ", *dataPL)
 		log.Info("uplink dataPL.Bytes: ", dataPL.Bytes)
-		publishDataUpReq.Data = dataPL.Bytes // bu bizim test caselerimizde decrypt metoduna girmemiş hali oluyor. Ya zaten kriptosuz olduğundan dolayı girmiyor(yüksek ihtimal) ya da kriptolu handle edilip kriptolu yazılıyor buraya(düşük ihtimal)
+		publishDataUpReq.Data = dataPL.Bytes // kriptolu hali gönderiliyor, asde decrypt ediliyor.
 	}
 
 	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataUpReq as.HandleUplinkDataRequest) {
