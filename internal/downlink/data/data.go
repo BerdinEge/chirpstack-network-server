@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/brocaar/chirpstack-api/go/v3/as"
 	"github.com/brocaar/chirpstack-api/go/v3/gw"
@@ -37,9 +39,10 @@ import (
 )
 
 const (
-	defaultCodeRate        = "4/5"
-	deviceDownlinkLockKey  = "lora:ns:device:%s:down:lock"
-	gatewayDownlinkLockKey = "lora:ns:gw:%s:down:lock"
+	defaultCodeRate          = "4/5"
+	deviceDownlinkLockKey    = "lora:ns:device:%s:down:lock"
+	gatewayDownlinkLockKey   = "lora:ns:gw:%s:down:lock"
+	applicationClientTimeout = time.Second
 )
 
 type incompatibleCIDMapping struct {
@@ -98,6 +101,8 @@ var (
 
 	// Prefer gateways with min uplink SNR margin
 	gatewayPreferMinMargin float64
+
+	downlinkPublishContext DownlinkPublishContext
 )
 
 var setMACCommandsSet = setMACCommands(
@@ -113,6 +118,7 @@ var setMACCommandsSet = setMACCommands(
 )
 
 var responseTasks = []func(*dataContext) error{
+	getApplicationServerClientForDataDown,
 	getDeviceProfile,
 	getServiceProfile,
 	setDeviceGatewayRXInfo,
@@ -123,6 +129,7 @@ var responseTasks = []func(*dataContext) error{
 	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
+	sendFOptsToApplicationServer,
 	isRoaming(false,
 		sendDownlinkFrame,
 	),
@@ -157,6 +164,7 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
+	//sendFOptsToApplicationServer,
 	sendDownlinkFrame,
 	saveDeviceSession,
 	saveDownlinkFrame,
@@ -266,6 +274,9 @@ type dataContext struct {
 
 	// Gateway to use for downlink.
 	DownlinkGateway storage.DeviceGatewayRXInfo
+
+	// AS client to publish downlink events to AS.
+	ApplicationServerClient as.ApplicationServerServiceClient
 }
 
 type downlinkFrameItem struct {
@@ -275,6 +286,15 @@ type downlinkFrameItem struct {
 	// The remaining payload size which can be used for mac-commands and / or
 	// FRMPayload.
 	RemainingPayloadSize int
+}
+
+type DownlinkPublishContext struct {
+	fcnt                uint32
+	ADR                 bool
+	fport               *uint8
+	Dr                  uint32
+	ConfirmedDownlink   lorawan.MType
+	DownlinkDataAsBytes []byte
 }
 
 func forClass(mode storage.DeviceMode, tasks ...func(*dataContext) error) func(*dataContext) error {
@@ -1304,7 +1324,11 @@ func setPHYPayloads(ctx *dataContext) error {
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
 			}
-
+			out, err := json.Marshal(macCommands)
+			if err == nil && out != nil {
+				downlinkPublishContext.DownlinkDataAsBytes = out
+			}
+			//panic(err)
 		}
 
 		// LoRaWAN MHDR
@@ -1370,6 +1394,11 @@ func setPHYPayloads(ctx *dataContext) error {
 			}
 		}
 
+		downlinkPublishContext.fcnt = macPL.FHDR.FCnt
+		downlinkPublishContext.ADR = macPL.FHDR.FCtrl.ADR
+		downlinkPublishContext.fport = macPL.FPort
+		downlinkPublishContext.ConfirmedDownlink = mhdr.MType
+
 		// Construct LoRaWAN PHYPayload.
 		phy := lorawan.PHYPayload{
 			MHDR:       mhdr,
@@ -1393,7 +1422,7 @@ func setPHYPayloads(ctx *dataContext) error {
 		// Set MIC.
 		// If this is an ACK, then FCntUp has already been incremented by one. If
 		// this is not an ACK, then DownlinkDataMIC will zero out ConfFCnt.
-		if err := phy.SetDownlinkDataMIC(ctx.DeviceSession.GetMACVersion(), ctx.DeviceSession.FCntUp - 1, ctx.DeviceSession.SNwkSIntKey); err != nil {
+		if err := phy.SetDownlinkDataMIC(ctx.DeviceSession.GetMACVersion(), ctx.DeviceSession.FCntUp-1, ctx.DeviceSession.SNwkSIntKey); err != nil {
 			return errors.Wrap(err, "set MIC error")
 		}
 
@@ -1405,6 +1434,46 @@ func setPHYPayloads(ctx *dataContext) error {
 		ctx.DownlinkFrameItems[i].DownlinkFrameItem.PhyPayload = b
 		ctx.DownlinkFrame.Items = append(ctx.DownlinkFrame.Items, &ctx.DownlinkFrameItems[i].DownlinkFrameItem)
 	}
+
+	return nil
+}
+
+func sendFOptsToApplicationServer(ctx *dataContext) error {
+	SentAtTimestamppb := timestamppb.Now()
+	publishDataDownReq := as.HandleDownlinkDataRequest{
+		DevEui:            ctx.DeviceSession.DevEUI[:],
+		JoinEui:           ctx.DeviceSession.JoinEUI[:],
+		FCnt:              downlinkPublishContext.fcnt,
+		Adr:               downlinkPublishContext.ADR,
+		ConfirmedDownlink: downlinkPublishContext.ConfirmedDownlink == lorawan.ConfirmedDataDown,
+		SentAt:            SentAtTimestamppb,
+	}
+	if len(ctx.DownlinkFrameItems) > 0 {
+		publishDataDownReq.TxInfo = ctx.DownlinkFrameItems[0].DownlinkFrameItem.TxInfo
+	}
+
+	publishDataDownReq.Dr = uint32(ctx.DeviceSession.DR)
+	if downlinkPublishContext.fport != nil {
+		publishDataDownReq.FPort = uint32(*downlinkPublishContext.fport)
+	}
+
+	if ctx.DeviceSession.AppSKeyEvelope != nil {
+		ctx.DeviceSession.AppSKeyEvelope = nil
+	}
+	if downlinkPublishContext.DownlinkDataAsBytes != nil {
+		publishDataDownReq.Data = downlinkPublishContext.DownlinkDataAsBytes
+	}
+
+	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataDownReq as.HandleDownlinkDataRequest) {
+		ctxTimeout, cancel := context.WithTimeout(ctx, applicationClientTimeout)
+		defer cancel()
+
+		if _, err := asClient.HandleDownlinkData(ctxTimeout, &publishDataDownReq); err != nil {
+			log.WithFields(log.Fields{
+				"ctx_id": ctx.Value(logging.ContextIDKey),
+			}).WithError(err).Error("publish downlink data to application-server error")
+		}
+	}(ctx.ctx, ctx.ApplicationServerClient, publishDataDownReq)
 
 	return nil
 }
@@ -1508,6 +1577,22 @@ func saveDeviceSession(ctx *dataContext) error {
 	if err := storage.SaveDeviceSession(ctx.ctx, ctx.DeviceSession); err != nil {
 		return errors.Wrap(err, "save device-session error")
 	}
+	return nil
+}
+
+func getApplicationServerClientForDataDown(ctx *dataContext) error {
+	rp, err := storage.GetRoutingProfile(ctx.ctx, storage.DB(), ctx.DeviceSession.RoutingProfileID)
+	if err != nil {
+		return errors.Wrap(err, "get routing-profile error")
+	}
+
+	asClient, err := applicationserver.Pool().Get(rp.ASID, []byte(rp.CACert), []byte(rp.TLSCert), []byte(rp.TLSKey))
+	if err != nil {
+		return errors.Wrap(err, "get application-server client error")
+	}
+
+	ctx.ApplicationServerClient = asClient
+
 	return nil
 }
 
