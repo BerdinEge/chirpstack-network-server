@@ -129,7 +129,6 @@ var responseTasks = []func(*dataContext) error{
 	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
-	sendFOptsToApplicationServer,
 	isRoaming(false,
 		sendDownlinkFrame,
 	),
@@ -164,7 +163,6 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
-	//sendFOptsToApplicationServer,
 	sendDownlinkFrame,
 	saveDeviceSession,
 	saveDownlinkFrame,
@@ -1439,6 +1437,9 @@ func setPHYPayloads(ctx *dataContext) error {
 }
 
 func sendFOptsToApplicationServer(ctx *dataContext) error {
+	if len(ctx.DownlinkFrameItems) == 0 {
+		return nil
+	}
 	SentAtTimestamppb := timestamppb.Now()
 	publishDataDownReq := as.HandleDownlinkDataRequest{
 		DevEui:            ctx.DeviceSession.DevEUI[:],
@@ -1487,6 +1488,8 @@ func sendDownlinkFrame(ctx *dataContext) error {
 	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
 		return errors.Wrap(err, "send downlink-frame to gateway error")
 	}
+
+	sendFOptsToApplicationServer(ctx)
 
 	return nil
 }
