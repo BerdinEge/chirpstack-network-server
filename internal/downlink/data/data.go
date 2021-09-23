@@ -160,7 +160,6 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 	),
 	setToken,
 	getNextDeviceQueueItem,
-	setMACCommandsSet,
 	stopOnNothingToSend,
 	setPHYPayloads,
 	sendDownlinkFrame,
