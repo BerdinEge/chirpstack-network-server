@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -607,6 +608,16 @@ func sendFRMPayloadToApplicationServer(ctx *dataContext) error {
 			return fmt.Errorf("expected type *lorawan.DataPayload, got %T", ctx.MACPayload.FRMPayload[0])
 		}
 		publishDataUpReq.Data = dataPL.Bytes
+	}
+	if len(ctx.MACPayload.FHDR.FOpts) > 0 {
+		macPL, ok := ctx.MACPayload.FHDR.FOpts[0].(*lorawan.MACCommand)
+		if !ok {
+			return fmt.Errorf("expected type *lorawan.MACCommand, got %T", ctx.MACPayload.FHDR.FOpts[0])
+		}
+		out, err := json.Marshal(macPL)
+		if err == nil && out != nil {
+			publishDataUpReq.Macdata = out
+		}
 	}
 
 	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataUpReq as.HandleUplinkDataRequest) {

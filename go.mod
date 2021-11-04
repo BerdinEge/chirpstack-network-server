@@ -44,4 +44,5 @@ require (
 	pack.ag/amqp v0.12.1
 )
 
-replace github.com/brocaar/chirpstack-api/go/v3 => ../chirpstack-api/go
+//replace github.com/brocaar/chirpstack-api/go/v3 => ../chirpstack-api/go
+replace github.com/brocaar/chirpstack-api/go/v3 => github.com/BerdinEge/chirpstack-api/go/v3 v3.12.3
