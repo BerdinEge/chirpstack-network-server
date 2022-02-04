@@ -24,6 +24,7 @@ import (
 	"github.com/brocaar/chirpstack-network-server/v3/internal/band"
 	"github.com/brocaar/chirpstack-network-server/v3/internal/channels"
 	"github.com/brocaar/chirpstack-network-server/v3/internal/config"
+	"github.com/brocaar/chirpstack-network-server/v3/internal/downlink/ack"
 	dwngateway "github.com/brocaar/chirpstack-network-server/v3/internal/downlink/gateway"
 	"github.com/brocaar/chirpstack-network-server/v3/internal/gps"
 	"github.com/brocaar/chirpstack-network-server/v3/internal/helpers"
@@ -137,6 +138,9 @@ var responseTasks = []func(*dataContext) error{
 	),
 	saveDeviceSession,
 	saveDownlinkFrame,
+	isRoaming(true,
+		handleRoamingTxAck,
+	),
 }
 
 var scheduleNextQueueItemTasks = []func(*dataContext) error{
@@ -1556,24 +1560,22 @@ func sendDownlinkFramePassiveRoaming(ctx *dataContext) error {
 		})
 	}
 
-	go func() {
-		logFields := log.Fields{
-			"ctx_id":  ctx.ctx.Value(logging.ContextIDKey),
-			"net_id":  netID,
-			"dev_eui": ctx.DeviceSession.DevEUI,
-		}
-		resp, err := client.XmitDataReq(ctx.ctx, req)
-		if err != nil {
-			log.WithFields(logFields).WithError(err).Error("downlink/data: XmitDataReq failed")
-			return
-		}
-		if resp.Result.ResultCode != backend.Success {
-			log.WithFields(logFields).Errorf("expected: %s, got: %s (%s)", backend.Success, resp.Result.ResultCode, resp.Result.Description)
-			return
-		}
+	logFields := log.Fields{
+		"ctx_id":  ctx.ctx.Value(logging.ContextIDKey),
+		"net_id":  netID,
+		"dev_eui": ctx.DeviceSession.DevEUI,
+	}
+	resp, err := client.XmitDataReq(ctx.ctx, req)
+	if err != nil {
+		log.WithFields(logFields).WithError(err).Error("downlink/data: XmitDataReq failed")
+		return ErrAbort
+	}
+	if resp.Result.ResultCode != backend.Success {
+		log.WithFields(logFields).Errorf("expected: %s, got: %s (%s)", backend.Success, resp.Result.ResultCode, resp.Result.Description)
+		return ErrAbort
+	}
 
-		log.WithFields(logFields).Info("downlink/data: forwarded downlink using passive-roaming")
-	}()
+	log.WithFields(logFields).Info("downlink/data: forwarded downlink using passive-roaming")
 
 	return nil
 }
@@ -1728,6 +1730,17 @@ func saveDownlinkFrame(ctx *dataContext) error {
 
 	if err := storage.SaveDownlinkFrame(ctx.ctx, &df); err != nil {
 		return errors.Wrap(err, "save downlink-frame error")
+	}
+
+	return nil
+}
+
+func handleRoamingTxAck(ctx *dataContext) error {
+	if err := ack.HandleRoamingTxAck(ctx.ctx, gw.DownlinkTXAck{
+		Token:      ctx.DownlinkFrame.Token,
+		DownlinkId: ctx.DownlinkFrame.DownlinkId,
+	}); err != nil {
+		return errors.Wrap(err, "Handle roaming tx ack")
 	}
 
 	return nil
