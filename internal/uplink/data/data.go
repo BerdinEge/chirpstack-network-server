@@ -628,7 +628,7 @@ func sendFRMPayloadToApplicationServer(ctx *dataContext) error {
 		}
 		publishDataUpReq.Data = dataPL.Bytes
 	}
-	if len(ctx.MACPayload.FHDR.FOpts) > 0 {
+	if ctx.MACPayload.FHDR.FOpts != nil && len(ctx.MACPayload.FHDR.FOpts) > 0 {
 		macPL, ok := ctx.MACPayload.FHDR.FOpts[0].(*lorawan.MACCommand)
 		if !ok {
 			return fmt.Errorf("expected type *lorawan.MACCommand, got %T", ctx.MACPayload.FHDR.FOpts[0])
