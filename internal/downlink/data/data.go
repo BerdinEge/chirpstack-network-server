@@ -133,6 +133,7 @@ var responseTasks = []func(*dataContext) error{
 	isRoaming(false,
 		sendDownlinkFrame,
 	),
+	sendFOptsToApplicationServer,
 	isRoaming(true,
 		sendDownlinkFramePassiveRoaming,
 	),
@@ -167,6 +168,12 @@ var scheduleNextQueueItemTasks = []func(*dataContext) error{
 	stopOnNothingToSend,
 	setPHYPayloads,
 	sendDownlinkFrame,
+	forClass(storage.DeviceModeA,
+		sendFOptsToApplicationServer,
+	),
+	forClass(storage.DeviceModeB,
+		sendFOptsToApplicationServer,
+	),
 	saveDeviceSession,
 	saveDownlinkFrame,
 	setDeviceQueueItemRetryAfter,
@@ -1494,8 +1501,6 @@ func sendDownlinkFrame(ctx *dataContext) error {
 	if err := gateway.Backend().SendTXPacket(ctx.DownlinkFrame); err != nil {
 		return errors.Wrap(err, "send downlink-frame to gateway error")
 	}
-
-	sendFOptsToApplicationServer(ctx)
 
 	return nil
 }
