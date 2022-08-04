@@ -1335,6 +1335,8 @@ func setPHYPayloads(ctx *dataContext) error {
 			for k := range ctx.MACCommands[j].MACCommands {
 				macCommands = append(macCommands, &ctx.MACCommands[j].MACCommands[k])
 			}
+
+			downlinkPublishContext.DownlinkDataAsBytes = nil
 			out, err := json.Marshal(macCommands)
 			if err == nil && out != nil {
 				downlinkPublishContext.DownlinkDataAsBytes = out
@@ -1476,6 +1478,8 @@ func sendFOptsToApplicationServer(ctx *dataContext) error {
 	}
 	if downlinkPublishContext.DownlinkDataAsBytes != nil {
 		publishDataDownReq.Data = downlinkPublishContext.DownlinkDataAsBytes
+	} else {
+		publishDataDownReq.Data = nil
 	}
 
 	go func(ctx context.Context, asClient as.ApplicationServerServiceClient, publishDataDownReq as.HandleDownlinkDataRequest) {
