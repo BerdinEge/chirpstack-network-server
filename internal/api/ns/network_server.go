@@ -1,6 +1,7 @@
 package ns
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -1765,12 +1766,38 @@ func (n *NetworkServerAPI) GetVersion(ctx context.Context, req *empty.Empty) (*n
 func (n *NetworkServerAPI) GetADRAlgorithms(ctx context.Context, req *empty.Empty) (*ns.GetADRAlgorithmsResponse, error) {
 	var resp ns.GetADRAlgorithmsResponse
 
-	for k, v := range adr.GetADRAlgorithms() {
+	keys := make([]string, 0)
+
+	for k := range adr.GetADRAlgorithms() {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, k := range keys {
 		resp.AdrAlgorithms = append(resp.AdrAlgorithms, &ns.ADRAlgorithm{
 			Id:   k,
-			Name: v,
+			Name: adr.GetADRAlgorithms()[k],
 		})
 	}
 
 	return &resp, nil
+}
+
+// ClearDeviceNonces deletes the device activation records matching the given DevEUI.
+func (n *NetworkServerAPI) ClearDeviceNonces(ctx context.Context, req *ns.ClearDeviceNoncesRequest) (*empty.Empty, error) {
+	var devEUI lorawan.EUI64
+	copy(devEUI[:], req.DevEui)
+
+	err := storage.Transaction(func(tx sqlx.Ext) error {
+		if err := storage.ClearDeviceNoncesForDevice(ctx, tx, devEUI); err != nil {
+			return errToRPCError(err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &empty.Empty{}, nil
 }

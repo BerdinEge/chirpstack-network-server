@@ -63,6 +63,7 @@ type DeviceGatewayRXInfo struct {
 type UplinkHistory struct {
 	FCnt         uint32
 	MaxSNR       float64
+	MaxRSSI      int32
 	TXPowerIndex int
 	GatewayCount int
 }
@@ -420,12 +421,23 @@ func GetDeviceSessionsForDevAddr(ctx context.Context, devAddr lorawan.DevAddr) (
 	for _, devEUI := range devEUIs {
 		s, err := GetDeviceSession(ctx, devEUI)
 		if err != nil {
-			// TODO: in case not found, remove the DevEUI from the list
-			log.WithError(err).WithFields(log.Fields{
-				"dev_addr": devAddr,
-				"dev_eui":  devEUI,
-				"ctx_id":   ctx.Value(logging.ContextIDKey),
-			}).Warning("get device-session for devaddr error")
+			if err == ErrDoesNotExist {
+				key := GetRedisKey(devAddrKeyTempl, devAddr)
+				if err := RedisClient().SRem(ctx, key, devEUI[:]).Err(); err != nil {
+					log.WithError(err).WithFields(log.Fields{
+						"dev_addr": devAddr,
+						"dev_eui":  devEUI,
+						"ctx_id":   ctx.Value(logging.ContextIDKey),
+					}).Error("remove deveui from devaddr set error")
+				}
+			} else {
+				log.WithError(err).WithFields(log.Fields{
+					"dev_addr": devAddr,
+					"dev_eui":  devEUI,
+					"ctx_id":   ctx.Value(logging.ContextIDKey),
+				}).Error("get device-session for devaddr error")
+			}
+
 			continue
 		}
 
@@ -743,6 +755,7 @@ func deviceSessionToPB(d DeviceSession) *DeviceSessionPB {
 			MaxSnr:       float32(h.MaxSNR),
 			TxPowerIndex: uint32(h.TXPowerIndex),
 			GatewayCount: uint32(h.GatewayCount),
+			MaxRssi:      h.MaxRSSI,
 		})
 	}
 
@@ -856,6 +869,7 @@ func deviceSessionFromPB(d *DeviceSessionPB) DeviceSession {
 			MaxSNR:       float64(h.MaxSnr),
 			TXPowerIndex: int(h.TxPowerIndex),
 			GatewayCount: int(h.GatewayCount),
+			MaxRSSI:      h.MaxRssi,
 		})
 	}
 

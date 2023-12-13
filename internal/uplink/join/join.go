@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -35,6 +36,7 @@ var ErrAbort = errors.New("nothing to do")
 
 type joinContext struct {
 	ctx context.Context
+	tx  sqlx.Ext
 
 	RXPacket           models.RXPacket
 	JoinRequestPayload *lorawan.JoinRequestPayload
@@ -81,39 +83,42 @@ func Setup(conf config.Config) error {
 
 // Handle handles a join-request
 func Handle(ctx context.Context, rxPacket models.RXPacket) error {
-	jctx := joinContext{
-		ctx:      ctx,
-		RXPacket: rxPacket,
-	}
-
-	for _, f := range []func() error{
-		jctx.setContextFromJoinRequestPHYPayload,
-		jctx.getDeviceOrTryRoaming,
-		jctx.getDeviceProfile,
-		jctx.getServiceProfile,
-		jctx.filterRxInfoByServiceProfile,
-		jctx.logJoinRequestFramesCollected,
-		jctx.abortOnDeviceIsDisabled,
-		jctx.validateNonce,
-		jctx.getRandomDevAddr,
-		jctx.getJoinAcceptFromAS,
-		jctx.sendUplinkMetaDataToNetworkController,
-		jctx.flushDeviceQueue,
-		jctx.createDeviceSession,
-		jctx.createDeviceActivation,
-		jctx.setDeviceMode,
-		jctx.sendJoinAcceptDownlink,
-	} {
-		if err := f(); err != nil {
-			if err == ErrAbort {
-				return nil
-			}
-
-			return err
+	return storage.Transaction(func(tx sqlx.Ext) error {
+		jctx := joinContext{
+			ctx:      ctx,
+			tx:       tx,
+			RXPacket: rxPacket,
 		}
-	}
 
-	return nil
+		for _, f := range []func() error{
+			jctx.setContextFromJoinRequestPHYPayload,
+			jctx.getDeviceOrTryRoaming,
+			jctx.getDeviceProfile,
+			jctx.getServiceProfile,
+			jctx.filterRxInfoByServiceProfile,
+			jctx.logJoinRequestFramesCollected,
+			jctx.abortOnDeviceIsDisabled,
+			jctx.validateNonce,
+			jctx.getRandomDevAddr,
+			jctx.getJoinAcceptFromAS,
+			jctx.sendUplinkMetaDataToNetworkController,
+			jctx.flushDeviceQueue,
+			jctx.createDeviceSession,
+			jctx.createDeviceActivation,
+			jctx.setDeviceMode,
+			jctx.sendJoinAcceptDownlink,
+		} {
+			if err := f(); err != nil {
+				if err == ErrAbort {
+					return nil
+				}
+
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 func (ctx *joinContext) setContextFromJoinRequestPHYPayload() error {
@@ -145,7 +150,7 @@ func (ctx *joinContext) logJoinRequestFramesCollected() error {
 
 func (ctx *joinContext) getDeviceOrTryRoaming() error {
 	var err error
-	ctx.Device, err = storage.GetDevice(ctx.ctx, storage.DB(), ctx.JoinRequestPayload.DevEUI, false)
+	ctx.Device, err = storage.GetDevice(ctx.ctx, ctx.tx, ctx.JoinRequestPayload.DevEUI, true)
 	if err != nil {
 		if errors.Cause(err) == storage.ErrDoesNotExist && roaming.IsRoamingEnabled() {
 			log.WithFields(log.Fields{
@@ -167,7 +172,7 @@ func (ctx *joinContext) getDeviceOrTryRoaming() error {
 
 func (ctx *joinContext) getDeviceProfile() error {
 	var err error
-	ctx.DeviceProfile, err = storage.GetDeviceProfile(ctx.ctx, storage.DB(), ctx.Device.DeviceProfileID)
+	ctx.DeviceProfile, err = storage.GetDeviceProfile(ctx.ctx, ctx.tx, ctx.Device.DeviceProfileID)
 	if err != nil {
 		return errors.Wrap(err, "get device-profile error")
 	}
@@ -181,7 +186,7 @@ func (ctx *joinContext) getDeviceProfile() error {
 
 func (ctx *joinContext) getServiceProfile() error {
 	var err error
-	ctx.ServiceProfile, err = storage.GetServiceProfile(ctx.ctx, storage.DB(), ctx.Device.ServiceProfileID)
+	ctx.ServiceProfile, err = storage.GetServiceProfile(ctx.ctx, ctx.tx, ctx.Device.ServiceProfileID)
 	if err != nil {
 		return errors.Wrap(err, "get service-profile error")
 	}
@@ -215,7 +220,7 @@ func (ctx *joinContext) validateNonce() error {
 	// validate that the nonce has not been used yet
 	err := storage.ValidateDevNonce(
 		ctx.ctx,
-		storage.DB(),
+		ctx.tx,
 		ctx.JoinRequestPayload.JoinEUI,
 		ctx.JoinRequestPayload.DevEUI,
 		ctx.JoinRequestPayload.DevNonce,
@@ -382,7 +387,7 @@ func (ctx *joinContext) sendUplinkMetaDataToNetworkController() error {
 }
 
 func (ctx *joinContext) flushDeviceQueue() error {
-	if err := storage.FlushDeviceQueueForDevEUI(ctx.ctx, storage.DB(), ctx.Device.DevEUI); err != nil {
+	if err := storage.FlushDeviceQueueForDevEUI(ctx.ctx, ctx.tx, ctx.Device.DevEUI); err != nil {
 		return errors.Wrap(err, "flush device-queue error")
 	}
 	return nil
@@ -457,7 +462,9 @@ func (ctx *joinContext) createDeviceSession() error {
 		ds.NwkSEncKey = key
 	}
 
-	if cfList := band.Band().GetCFList(ctx.DeviceProfile.MACVersion); cfList != nil && cfList.CFListType == lorawan.CFListChannel {
+	cfList := band.Band().GetCFList(ctx.DeviceProfile.MACVersion)
+
+	if cfList != nil && cfList.CFListType == lorawan.CFListChannel {
 		channelPL, ok := cfList.Payload.(*lorawan.CFListChannelPayload)
 		if !ok {
 			return fmt.Errorf("expected *lorawan.CFListChannelPayload, got %T", cfList.Payload)
@@ -490,6 +497,23 @@ func (ctx *joinContext) createDeviceSession() error {
 		}
 	}
 
+	if cfList != nil && cfList.CFListType == lorawan.CFListChannelMask {
+		ds.EnabledUplinkChannels = []int{}
+
+		maskPL, ok := cfList.Payload.(*lorawan.CFListChannelMaskPayload)
+		if !ok {
+			return fmt.Errorf("expected *lorawan.CFListChannelMaskPayload, got %T", cfList.Payload)
+		}
+
+		for blockI, block := range maskPL.ChannelMasks {
+			for channelI, enabled := range block {
+				if enabled {
+					ds.EnabledUplinkChannels = append(ds.EnabledUplinkChannels, channelI+(blockI*16))
+				}
+			}
+		}
+	}
+
 	if ctx.DeviceProfile.PingSlotPeriod != 0 {
 		ds.PingSlotNb = (1 << 12) / ctx.DeviceProfile.PingSlotPeriod
 	}
@@ -519,7 +543,7 @@ func (ctx *joinContext) createDeviceActivation() error {
 		JoinReqType: lorawan.JoinRequestType,
 	}
 
-	if err := storage.CreateDeviceActivation(ctx.ctx, storage.DB(), &da); err != nil {
+	if err := storage.CreateDeviceActivation(ctx.ctx, ctx.tx, &da); err != nil {
 		return errors.Wrap(err, "create device-activation error")
 	}
 
@@ -534,7 +558,7 @@ func (ctx *joinContext) setDeviceMode() error {
 	} else {
 		ctx.Device.Mode = storage.DeviceModeA
 	}
-	if err := storage.UpdateDevice(ctx.ctx, storage.DB(), &ctx.Device); err != nil {
+	if err := storage.UpdateDevice(ctx.ctx, ctx.tx, &ctx.Device); err != nil {
 		return errors.Wrap(err, "update device error")
 	}
 	return nil
