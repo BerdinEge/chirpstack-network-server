@@ -37,6 +37,9 @@ var handleDownlinkTXAckTasks = []func(*ackContext) error{
 		forApplicationPayload(
 			sendErrorToApplicationServerOnLastFrame,
 		),
+		forMACOnlyPayload(
+			sendErrorToApplicationServerOnLastFrame,
+		),
 		forMulticastPayload(
 			// TODO: For now we delete the multicast queue-item. What would be the best
 			// way to retry? Multicast is a bit more complicated as the downlinks are
@@ -47,8 +50,8 @@ var handleDownlinkTXAckTasks = []func(*ackContext) error{
 		),
 
 		// Backwards compatibility.
-		sendDownlinkFrame,
 		saveDownlinkFrames,
+		sendDownlinkFrame,
 	),
 	onNoError(
 		// Start a transaction so that we can lock the device record. Without
@@ -59,6 +62,7 @@ var handleDownlinkTXAckTasks = []func(*ackContext) error{
 		// after the scheduler function has committed its transaction.
 		transaction(
 			forApplicationPayload(
+				lockDevice,
 				getDeviceSession,
 				getDeviceQueueItem,
 				forUnconfirmedDownlink(
@@ -229,7 +233,7 @@ func forConfirmedDownlink(funcs ...func(*ackContext) error) func(*ackContext) er
 func forMACOnlyPayload(funcs ...func(*ackContext) error) func(*ackContext) error {
 	return func(ctx *ackContext) error {
 		// for mac-only payload, the FPort must be nil or it must be set to 0.
-		if ctx.MACPayload == nil || !(ctx.MACPayload.FPort == nil || *ctx.MACPayload.FPort == 0) {
+		if len(ctx.DownlinkFrame.DevEui) == 0 || ctx.MACPayload == nil || !(ctx.MACPayload.FPort == nil || *ctx.MACPayload.FPort == 0) {
 			return nil
 		}
 
@@ -498,8 +502,7 @@ func sendTxAckToApplicationServer(ctx *ackContext) error {
 
 func sendErrorToApplicationServerOnLastFrame(ctx *ackContext) error {
 	// Only send an error to the AS on the last possible attempt.
-	// We only want to send error for application payloads.
-	if (len(ctx.DownlinkTXAck.Items) == 0 && len(ctx.DownlinkFrame.DownlinkFrame.Items) >= 2) || ctx.MACPayload == nil || ctx.MACPayload.FPort == nil || *ctx.MACPayload.FPort == 0 {
+	if (len(ctx.DownlinkTXAck.Items) == 0 && len(ctx.DownlinkFrame.DownlinkFrame.Items) >= 2) || ctx.MACPayload == nil {
 		return nil
 	}
 
